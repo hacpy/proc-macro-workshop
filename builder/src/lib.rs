@@ -8,7 +8,13 @@ use syn::{
 #[proc_macro_derive(Builder, attributes(builder))]
 pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+    match expand(input) {
+        Ok(t) => t.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
 
+fn expand(input: DeriveInput) -> Result<TokenStream> {
     let name = input.ident;
     let builder_name = Ident::new(&format!("{}Builder", name), Span::call_site());
 
@@ -21,24 +27,20 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     };
 
     // pub struct Builder {}
-    let builder_struct = match create_builder_struct(&fields, &builder_name) {
-        Ok(t) => t,
-        Err(e) => return e.to_compile_error().into(),
-    };
+    let builder_struct = create_builder_struct(&fields, &builder_name)?;
 
     // impl #name {
     //      pub fn builder() -> Builder {}
     //}
-    let builder = impl_builder(&fields, &builder_name).unwrap_or_else(|err| err.to_compile_error());
+    let builder = impl_builder(&fields, &builder_name)?;
     // impl Builder {
     //      pub fn build() -> #name {}
     //}
-    let builder_build =
-        impl_builder_build(&fields, &name).unwrap_or_else(|err| err.to_compile_error());
+    let builder_build = impl_builder_build(&fields, &name)?;
     // impl Builder {
     //      fn set_func() -> &mut Self {}
     // }
-    let builder_funcs = impl_builder_funcs(&fields).unwrap_or_else(|err| err.to_compile_error());
+    let builder_funcs = impl_builder_funcs(&fields)?;
 
     let expand = quote! {
         #builder_struct
@@ -54,7 +56,7 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         }
     };
 
-    expand.into()
+    Ok(expand)
 }
 
 fn get_attr_value(field: &syn::Field) -> Result<Option<Ident>> {
